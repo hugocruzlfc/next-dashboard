@@ -4,31 +4,50 @@ import { z } from "zod";
 import { sql } from "@vercel/postgres";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { FormState } from "./definitions";
 
 const InvoiceSchema = z.object({
   id: z.string(),
-  customerId: z.string(),
-  amount: z.coerce.number(),
-  status: z.enum(["pending", "paid"]),
+  customerId: z.string({
+    invalid_type_error: "Please select a customer.",
+  }),
+  amount: z.coerce
+    .number()
+    .gt(0, { message: "Please enter an amount greater than $0." }),
+  status: z.enum(["pending", "paid"], {
+    invalid_type_error: "Please select an invoice status.",
+  }),
   date: z.string(),
 });
 
 const CreateInvoice = InvoiceSchema.omit({ id: true, date: true });
 const UpdateInvoice = InvoiceSchema.omit({ date: true });
 
-export async function createInvoice(formData: FormData) {
-  const { customerId, amount, status } = CreateInvoice.parse({
+export async function createInvoice(prevState: FormState, formData: FormData) {
+  // Validate form using Zod
+  const validatedFields = CreateInvoice.safeParse({
     customerId: formData.get("customerId"),
     amount: formData.get("amount"),
     status: formData.get("status"),
   });
 
+  // If form validation fails, return errors early. Otherwise, continue.
+  if (!validatedFields.success) {
+    return {
+      errors: validatedFields.error.flatten().fieldErrors,
+      message: "Missing Fields. Failed to Create Invoice.",
+    };
+  }
+
+  // Prepare data for insertion into the database
+  const { customerId, amount, status } = validatedFields.data;
   const amountInCents = amount * 100;
   const date = new Date().toISOString().split("T")[0]; //YYYY-MM-DD
 
   //   const rawFormDataOtro = Object.fromEntries(formData.entries());
   //   console.log(typeof rawFormData.amount);
 
+  // Insert data into the database
   try {
     await sql`
       INSERT INTO invoices (customer_id, amount, status, date)
@@ -40,28 +59,41 @@ export async function createInvoice(formData: FormData) {
     };
   }
 
+  // Revalidate the cache for the invoices page and redirect the user.
   revalidatePath("/dashboard/invoices");
   //☝🏻 Dado que está actualizando los datos que se muestran en la ruta de facturas, desea borrar este caché y activar una nueva solicitud al servidor. Puedes hacer esto con la revalidatePathfunción de Next.js:
 
   redirect("/dashboard/invoices");
 }
 
-export async function updateInvoice(_id: string, formData: FormData) {
-  const { customerId, amount, status, id } = UpdateInvoice.parse({
+export async function updateInvoice(
+  _id: string,
+  prevState: FormState,
+  formData: FormData
+) {
+  const validatedFields = UpdateInvoice.safeParse({
     customerId: formData.get("customerId"),
     amount: formData.get("amount"),
     status: formData.get("status"),
     id: _id,
   });
 
+  if (!validatedFields.success) {
+    return {
+      errors: validatedFields.error.flatten().fieldErrors,
+      message: "Missing Fields. Failed to Update Invoice.",
+    };
+  }
+
+  const { customerId, amount, status, id } = validatedFields.data;
   const amountInCents = amount * 100;
 
   try {
     await sql`
-        UPDATE invoices
-        SET customer_id = ${customerId}, amount = ${amountInCents}, status = ${status}
-        WHERE id = ${id}
-      `;
+      UPDATE invoices
+      SET customer_id = ${customerId}, amount = ${amountInCents}, status = ${status}
+      WHERE id = ${id}
+    `;
   } catch (error) {
     return { message: "Database Error: Failed to Update Invoice." };
   }
@@ -71,12 +103,12 @@ export async function updateInvoice(_id: string, formData: FormData) {
 }
 
 export async function deleteInvoice(id: string) {
-  throw new Error("Failed to Delete Invoice");
-  // try {
-  //   await sql`DELETE FROM invoices WHERE id = ${id}`;
-  //   revalidatePath("/dashboard/invoices");
-  //   return { message: "Deleted Invoice." };
-  // } catch (error) {
-  //   return { message: "Database Error: Failed to Delete Invoice." };
-  // }
+  // throw new Error("Failed to Delete Invoice");
+  try {
+    await sql`DELETE FROM invoices WHERE id = ${id}`;
+    revalidatePath("/dashboard/invoices");
+    return { message: "Deleted Invoice." };
+  } catch (error) {
+    return { message: "Database Error: Failed to Delete Invoice." };
+  }
 }
