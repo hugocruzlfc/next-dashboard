@@ -29,10 +29,16 @@ export async function createInvoice(formData: FormData) {
   //   const rawFormDataOtro = Object.fromEntries(formData.entries());
   //   console.log(typeof rawFormData.amount);
 
-  await sql`
-    INSERT INTO invoices (customer_id, amount, status, date)
-    VALUES (${customerId}, ${amountInCents}, ${status}, ${date})
-  `;
+  try {
+    await sql`
+      INSERT INTO invoices (customer_id, amount, status, date)
+      VALUES (${customerId}, ${amountInCents}, ${status}, ${date})
+    `;
+  } catch (error) {
+    return {
+      message: "Database Error: Failed to Create Invoice.",
+    };
+  }
 
   revalidatePath("/dashboard/invoices");
   //☝🏻 Dado que está actualizando los datos que se muestran en la ruta de facturas, desea borrar este caché y activar una nueva solicitud al servidor. Puedes hacer esto con la revalidatePathfunción de Next.js:
@@ -50,17 +56,27 @@ export async function updateInvoice(_id: string, formData: FormData) {
 
   const amountInCents = amount * 100;
 
-  await sql`
-    UPDATE invoices
-    SET customer_id = ${customerId}, amount = ${amountInCents}, status = ${status}
-    WHERE id = ${id}
-  `;
+  try {
+    await sql`
+        UPDATE invoices
+        SET customer_id = ${customerId}, amount = ${amountInCents}, status = ${status}
+        WHERE id = ${id}
+      `;
+  } catch (error) {
+    return { message: "Database Error: Failed to Update Invoice." };
+  }
 
   revalidatePath("/dashboard/invoices");
   redirect("/dashboard/invoices");
 }
 
 export async function deleteInvoice(id: string) {
-  await sql`DELETE FROM invoices WHERE id = ${id}`;
-  revalidatePath("/dashboard/invoices");
+  throw new Error("Failed to Delete Invoice");
+  // try {
+  //   await sql`DELETE FROM invoices WHERE id = ${id}`;
+  //   revalidatePath("/dashboard/invoices");
+  //   return { message: "Deleted Invoice." };
+  // } catch (error) {
+  //   return { message: "Database Error: Failed to Delete Invoice." };
+  // }
 }
